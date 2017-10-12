@@ -1,8 +1,7 @@
-"""CS 61A presents Ants Vs. SomeBees."""
-
 import random
 from ucb import main, interact, trace
 from collections import OrderedDict
+import types
 
 ################
 # Core Classes #
@@ -21,6 +20,7 @@ class Place(object):
         self.exit = exit
         self.bees = []        # A list of Bees
         self.ant = None       # An Ant
+        self.entrance = None
         # BEGIN Problem 2
 
         # if place has exit
@@ -47,9 +47,13 @@ class Place(object):
                 if self.ant.can_contain(insect):
                     self.ant.contain_ant(insect)
                 elif insect.can_contain(self.ant):
+                    """
                     temp = self.ant
                     self.ant = insect
                     insect.contain_ant(temp)
+                    """
+                    insect.contain_ant(self.ant)
+                    self.ant = insect
                 else:
                     assert self.ant is None, 'Two ants in {0}'.format(self)
 
@@ -71,13 +75,17 @@ class Place(object):
         if insect.is_ant:
             # Phase 6: Special Handling for BodyguardAnt and QueenAnt
             if self.ant is insect:
+                # for queenAnt, this should return false because the self.ant.container is false
                 if hasattr(self.ant, 'container') and self.ant.container:
                     self.ant = self.ant.ant
+                # for the true queenAnt, this code should be run
+                elif isinstance(self.ant, QueenAnt) and self.ant.imposter == False:
+                    return
                 else:
                     self.ant = None
-            elif isinstance(self.ant, QueenAnt):
-                return
             else:
+                if isinstance(self.ant, QueenAnt) or isinstance(insect, QueenAnt) and insect.imposter == False:
+                    return
                 if hasattr(self.ant, 'container') and self.ant.container and self.ant.ant is insect:
                     self.ant.ant = None
                 else:
@@ -500,6 +508,9 @@ class TankAnt(BodyguardAnt):
         super(TankAnt, self).action(colony)
         # END Problem 12
 
+
+
+
 # BEGIN Problem 13
 class QueenAnt(ScubaThrower):  # You should change this line
 # END Problem 13
@@ -519,16 +530,6 @@ class QueenAnt(ScubaThrower):  # You should change this line
         if not QueenAnt.instanceExists:
             QueenAnt.instanceExists = True
             self.imposter = False
-            self.doubledAnts = []
-            self.antsBehind = []
-
-            currentPlace = Place("placeCopy")
-            currentPlace.exit = self.place.exit
-            while currentPlace.exit != None:
-                if currentPlace.ant != None:
-                    self.antsBehind.append(currentPlace.ant)
-                currentPlace = currentPlace.exit
-
         else:
             self.imposter = True
         # END Problem 13
@@ -543,13 +544,21 @@ class QueenAnt(ScubaThrower):  # You should change this line
         if self.imposter:
             self.reduce_armor(self.armor)
         else:
+            super(QueenAnt, self).action(colony)
+
+            # creates a new place that is where the queen is located
             currentPlace = Place("placeCopy")
             currentPlace.exit = self.place.exit
+
             while currentPlace.exit != None:
-                if currentPlace.ant != None:
-                    currentPlace.ant.damage *= 2
-                    self.doubledAnts.append(currentPlace.ant)
                 currentPlace = currentPlace.exit
+                if currentPlace.ant != None:
+                    if not hasattr(currentPlace.ant, 'doubled'):
+                        currentPlace.ant.damage *= 2
+                        currentPlace.ant.doubled = True
+                    if currentPlace.ant.container and currentPlace.ant.ant != None and not hasattr(currentPlace.ant.ant, 'doubled'):
+                        currentPlace.ant.ant.damage *= 2
+                        currentPlace.ant.ant.doubled = True
         # END Problem 13
 
     def reduce_armor(self, amount):
@@ -560,7 +569,7 @@ class QueenAnt(ScubaThrower):  # You should change this line
         super(QueenAnt, self).reduce_armor(amount)
         if self.armor <= 0 and not self.imposter:
             bees_win()
-        # otherwise, if imposter, nothing happens
+        # otherwise, if imposter, nothing happens; the queen just dies
 
         # END Problem 13
 
@@ -583,7 +592,17 @@ def make_slow(action):
     action -- An action method of some Bee
     """
     # BEGIN Problem EC
-    "*** YOUR CODE HERE ***"
+    def newAction(self, colony):
+        if self.slowEffectDuration > 0:
+            if colony.time % 2 == 0:
+                action(colony)
+            else:
+                pass
+            self.slowEffectDuration -= 1
+        else:
+            action(colony)
+
+    return newAction
     # END Problem EC
 
 def make_stun(action):
@@ -592,14 +611,30 @@ def make_stun(action):
     action -- An action method of some Bee
     """
     # BEGIN Problem EC
-    "*** YOUR CODE HERE ***"
+
+    def newAction(self, colony):
+        if self.stunEffectDuration > 0:
+            self.stunEffectDuration -= 1
+        else:
+            action(colony)
+
+    return newAction
     # END Problem EC
 
 def apply_effect(effect, bee, duration):
     """Apply a status effect to a BEE that lasts for DURATION turns."""
     # BEGIN Problem EC
-    "*** YOUR CODE HERE ***"
+    if not hasattr(bee, 'stunEffectDuration'):
+        bee.stunEffectDuration = 0
+        bee.slowEffectDuration = 0
+
+    if effect is make_stun:
+        bee.stunEffectDuration += duration
+    elif effect is make_slow:
+        bee.slowEffectDuration += duration
+    bee.action = types.MethodType(effect(bee.action), bee)
     # END Problem EC
+
 
 
 class SlowThrower(ThrowerAnt):
@@ -608,6 +643,8 @@ class SlowThrower(ThrowerAnt):
     name = 'Slow'
     # BEGIN Problem EC
     implemented = False   # Change to True to view in the GUI
+    food_cost = 4
+    armor = 1
     # END Problem EC
 
     def throw_at(self, target):
@@ -621,6 +658,8 @@ class StunThrower(ThrowerAnt):
     name = 'Stun'
     # BEGIN Problem EC
     implemented = False   # Change to True to view in the GUI
+    food_cost = 6
+    armor = 1
     # END Problem EC
 
     def throw_at(self, target):
